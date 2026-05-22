@@ -1,39 +1,39 @@
 import pygame
 import time
-import copy
 from queue import PriorityQueue
 
-# Configuration for the visual user interface
-GRID_WIDTH = 800
+# Updated configuration for better visibility and academic analysis
+GRID_SIZE = 600
 SIDEBAR_WIDTH = 250
-WIDTH = GRID_WIDTH + SIDEBAR_WIDTH
+WIDTH = (GRID_SIZE * 2) + SIDEBAR_WIDTH
+HEIGHT = 800 
 ROWS = 40 
-WIN = pygame.display.set_mode((WIDTH, GRID_WIDTH))
+WIN = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Academic Pathfinding Analysis: Dijkstra versus A Star")
 
-# Color coded palette for terrains and UI
+# Color coded palette for visual representation
 WHITE = (255, 255, 255) # Flat Land (Cost 1)
-BLACK = (0, 0, 0)       # Wall (Impassable)
+BLACK = (0, 0, 0)       # Wall
 GREY = (128, 128, 128)  # Grid Lines
 BLUE = (0, 0, 255)      # Water (Cost 2)
 BROWN = (139, 69, 19)   # Mountain (Cost 3)
 GREEN = (0, 255, 0)     # Start Node
 RED = (255, 0, 0)       # Target Node
 PURPLE = (128, 0, 128)  # Final Path
-TURQUOISE = (64, 224, 208) # Closed Set (Explored)
-YELLOW = (255, 255, 0)  # Open Set (Frontier)
+TURQUOISE = (64, 224, 208) # Explored Nodes
+YELLOW = (255, 255, 0)  # Frontier Nodes
 UI_BG = (230, 230, 230) # Sidebar Background
 TEXT_COLOR = (30, 30, 30)
 
 pygame.font.init()
-FONT = pygame.font.SysFont("Arial", 18)
-HEADER_FONT = pygame.font.SysFont("Arial", 22, bold=True)
+FONT = pygame.font.SysFont("Arial", 16)
+HEADER_FONT = pygame.font.SysFont("Arial", 18, bold=True)
 
 class Node:
-    def __init__(self, row, col, width, total_rows):
+    def __init__(self, row, col, width, total_rows, offset_x=0):
         self.row = row
         self.col = col
-        self.x = row * width
+        self.x = (row * width) + offset_x
         self.y = col * width
         self.color = WHITE
         self.weight = 1
@@ -78,22 +78,24 @@ class Node:
             self.neighbors.append(grid[self.row][self.col - 1])
 
 def h(p1, p2):
+    # Manhattan distance calculation for a grid based coordinate system
     x1, y1 = p1
     x2, y2 = p2
     return abs(x1 - x2) + abs(y1 - y2)
 
 def reconstruct_path(came_from, current, draw):
-    path_cost = 0
-    path_length = 0
+    cost = 0
+    length = 0
     while current in came_from:
-        path_cost += current.weight
-        path_length += 1
+        cost += current.weight
+        length += 1
         current = came_from[current]
         current.make_path()
-        draw()
-    return path_cost, path_length
+        if draw: draw()
+    return cost, length
 
-def run_algorithm(algo_type, draw, grid, start, end):
+def run_algorithm_headless(algo_type, grid, start, end):
+    # This function is used by the benchmarking script for fast data collection
     count = 0
     open_set = PriorityQueue()
     open_set.put((0, count, start))
@@ -104,103 +106,171 @@ def run_algorithm(algo_type, draw, grid, start, end):
     start_time = time.time()
 
     while not open_set.empty():
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT: pygame.quit()
-
         current = open_set.get()[2]
         nodes_explored += 1
-
         if current == end:
-            path_cost, path_length = reconstruct_path(came_from, end, draw)
-            end.make_end()
-            return {"cost": path_cost, "length": path_length, "explored": nodes_explored, "time": round(time.time() - start_time, 4)}
+            cost, length = reconstruct_path(came_from, end, None)
+            return {"cost": cost, "explored": nodes_explored, "time": round(time.time() - start_time, 6)}
 
         for neighbor in current.neighbors:
-            temp_g_score = g_score[current] + neighbor.weight
-            if temp_g_score < g_score[neighbor]:
+            temp_g = g_score[current] + neighbor.weight
+            if temp_g < g_score[neighbor]:
                 came_from[neighbor] = current
-                g_score[neighbor] = temp_g_score
+                g_score[neighbor] = temp_g
                 if algo_type == "A_STAR":
-                    f_score = temp_g_score + h(neighbor.get_pos(), end.get_pos())
-                    open_set.put((f_score, count, neighbor))
+                    f = temp_g + h(neighbor.get_pos(), end.get_pos())
+                    open_set.put((f, count, neighbor))
                 else: 
-                    open_set.put((temp_g_score, count, neighbor))
+                    open_set.put((temp_g, count, neighbor))
                 count += 1
-                neighbor.make_open()
-        draw()
-        if current != start: current.make_closed()
     return None
 
-def draw_grid(win, rows, width):
-    gap = width // rows
-    for i in range(rows):
-        pygame.draw.line(win, GREY, (0, i * gap), (width, i * gap))
-        for j in range(rows):
-            pygame.draw.line(win, GREY, (j * gap, 0), (j * gap, width))
-
-def draw_sidebar(win, current_brush, last_results):
-    pygame.draw.rect(win, UI_BG, (GRID_WIDTH, 0, SIDEBAR_WIDTH, GRID_WIDTH))
-    y_offset = 20
-    win.blit(HEADER_FONT.render("Tools and Brush", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset))
-    brushes = [("Start (Green)", GREEN), ("End (Red)", RED), ("Wall (Black)", BLACK), 
-               ("Water Cost 2 (Blue)", BLUE), ("Mountain Cost 3 (Brown)", BROWN)]
-    y_offset += 40
+def draw_sidebar(win, brush, results_d, results_a):
+    pygame.draw.rect(win, UI_BG, (GRID_SIZE * 2, 0, SIDEBAR_WIDTH, HEIGHT))
+    y_pos = 20
+    win.blit(HEADER_FONT.render("Controls", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos))
+    y_pos += 30
+    controls = ["1: Start | 2: End", "3: Wall | 4: Water", "5: Mountain", "C: Clear Labyrinth", "Z: Undo Clear", "S: Start Side by Side", "R: Reset Visuals"]
+    for text in controls:
+        win.blit(FONT.render(text, True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos))
+        y_pos += 25
+    
+    y_pos += 20
+    win.blit(HEADER_FONT.render(f"Active Brush: {brush}", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos))
+    
+    y_pos += 40
+    brushes = [("START", GREEN), ("END", RED), ("WALL", BLACK), ("WATER", BLUE), ("MOUNTAIN", BROWN)]
     for name, color in brushes:
-        rect = pygame.Rect(GRID_WIDTH + 20, y_offset, 210, 35)
-        bg = (200, 200, 200) if current_brush == name.split()[0].upper() else (255, 255, 255)
-        pygame.draw.rect(win, bg, rect)
-        pygame.draw.rect(win, color, (GRID_WIDTH + 25, y_offset + 7, 20, 20))
-        win.blit(FONT.render(name, True, TEXT_COLOR), (GRID_WIDTH + 55, y_offset + 7))
-        y_offset += 45
-    y_offset += 20
-    win.blit(HEADER_FONT.render("Commands", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset))
-    win.blit(FONT.render("SPACE: A Star | D: Dijkstra", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 35))
-    win.blit(FONT.render("C: Clear Grid | Z: Undo Clear", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 60))
-    y_offset += 110
-    win.blit(HEADER_FONT.render("Algorithm Results", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset))
-    if last_results:
-        win.blit(FONT.render(f"Path Total Cost: {last_results['cost']}", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 40))
-        win.blit(FONT.render(f"Path Node Count: {last_results['length']}", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 65))
-        win.blit(FONT.render(f"Nodes Explored: {last_results['explored']}", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 90))
-        win.blit(FONT.render(f"Execution Time: {last_results['time']}s", True, TEXT_COLOR), (GRID_WIDTH + 20, y_offset + 115))
+        rect_x = GRID_SIZE * 2 + 20
+        pygame.draw.rect(win, color, (rect_x, y_pos, 20, 20))
+        win.blit(FONT.render(name, True, TEXT_COLOR), (rect_x + 30, y_pos))
+        y_pos += 30
 
-def draw_everything(win, grid, rows, width, brush, last_results):
-    win.fill(WHITE)
-    for row in grid:
-        for node in row:
-            node.draw(win)
-    draw_grid(win, rows, width)
-    draw_sidebar(win, brush, last_results)
-    pygame.display.update()
+    y_pos += 40
+    win.blit(HEADER_FONT.render("Dijkstra Results (Left)", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos))
+    if results_d:
+        win.blit(FONT.render(f"Path Cost: {results_d['cost']}", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 25))
+        win.blit(FONT.render(f"Nodes Explored: {results_d['explored']}", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 45))
+        win.blit(FONT.render(f"Time: {results_d['time']}s", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 65))
+    
+    y_pos += 110
+    win.blit(HEADER_FONT.render("A Star Results (Right)", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos))
+    if results_a:
+        win.blit(FONT.render(f"Path Cost: {results_a['cost']}", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 25))
+        win.blit(FONT.render(f"Nodes Explored: {results_a['explored']}", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 45))
+        win.blit(FONT.render(f"Time: {results_a['time']}s", True, TEXT_COLOR), (GRID_SIZE * 2 + 20, y_pos + 65))
 
-def main(win, width):
-    gap = GRID_WIDTH // ROWS
-    grid = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
+def main(win):
+    gap = GRID_SIZE // ROWS
+    grid_editor = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
+    grid_d, grid_a = None, None
     grid_backup = None
-    start = None
-    end = None
+    start_pos, end_pos = None, None
     brush = "START"
-    last_results = None
+    results_d, results_a = None, None
+    sim_state = "EDITING" # EDITING, RUNNING, FINISHED
     run = True
 
     while run:
-        draw_everything(win, grid, ROWS, GRID_WIDTH, brush, last_results)
+        win.fill(WHITE)
+        active_grids = [grid_editor] if sim_state == "EDITING" else [grid_d, grid_a]
+        for g in active_grids:
+            for row in g:
+                for node in row: node.draw(win)
+        
+        for offset in [0, GRID_SIZE] if sim_state != "EDITING" else [0]:
+            for i in range(ROWS + 1):
+                pygame.draw.line(win, GREY, (offset, i * gap), (offset + GRID_SIZE, i * gap))
+                pygame.draw.line(win, GREY, (offset + i * gap, 0), (offset + i * gap, GRID_SIZE))
+
+        draw_sidebar(win, brush, results_d, results_a)
+        pygame.display.update()
+
+        if sim_state == "RUNNING":
+            count_d, count_a = 0, 0
+            open_d, open_a = PriorityQueue(), PriorityQueue()
+            open_d.put((0, count_d, grid_d[start_pos[0]][start_pos[1]]))
+            open_a.put((0, count_a, grid_a[start_pos[0]][start_pos[1]]))
+            
+            came_d, came_a = {}, {}
+            g_d = {n: float("inf") for r in grid_d for n in r}
+            g_a = {n: float("inf") for r in grid_a for n in r}
+            g_d[grid_d[start_pos[0]][start_pos[1]]] = 0
+            g_a[grid_a[start_pos[0]][start_pos[1]]] = 0
+            
+            d_done, a_done = False, False
+            exp_d, exp_a = 0, 0
+            t_sim_start = time.time()
+
+            while not (d_done and a_done):
+                if not d_done and not open_d.empty():
+                    curr = open_d.get()[2]
+                    exp_d += 1
+                    if curr.row == end_pos[0] and curr.col == end_pos[1]:
+                        cost, length = reconstruct_path(came_d, curr, None)
+                        results_d = {"cost": cost, "explored": exp_d, "time": round(time.time() - t_sim_start, 4)}
+                        d_done = True
+                    else:
+                        for n in curr.neighbors:
+                            temp = g_d[curr] + n.weight
+                            if temp < g_d[n]:
+                                came_d[n] = curr
+                                g_d[n] = temp
+                                count_d += 1
+                                open_d.put((temp, count_d, n))
+                                n.make_open()
+                        if curr.color != GREEN: curr.make_closed()
+
+                if not a_done and not open_a.empty():
+                    curr = open_a.get()[2]
+                    exp_a += 1
+                    if curr.row == end_pos[0] and curr.col == end_pos[1]:
+                        cost, length = reconstruct_path(came_a, curr, None)
+                        results_a = {"cost": cost, "explored": exp_a, "time": round(time.time() - t_sim_start, 4)}
+                        a_done = True
+                    else:
+                        for n in curr.neighbors:
+                            temp = g_a[curr] + n.weight
+                            if temp < g_a[n]:
+                                came_a[n] = curr
+                                g_a[n] = temp
+                                count_a += 1
+                                f = temp + h(n.get_pos(), end_pos)
+                                open_a.put((f, count_a, n))
+                                n.make_open()
+                        if curr.color != GREEN: curr.make_closed()
+
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT: pygame.quit()
+                
+                for r in grid_d: 
+                    for n in r: n.draw(win)
+                for r in grid_a: 
+                    for n in r: n.draw(win)
+                draw_sidebar(win, brush, results_d, results_a)
+                pygame.display.update()
+
+            sim_state = "FINISHED"
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT: run = False
-            if pygame.mouse.get_pressed()[0]:
+            if pygame.mouse.get_pressed()[0] and sim_state == "EDITING":
                 pos = pygame.mouse.get_pos()
-                if pos[0] < GRID_WIDTH:
+                if pos[0] < GRID_SIZE:
                     r, c = pos[0] // gap, pos[1] // gap
-                    node = grid[r][c]
+                    node = grid_editor[r][c]
                     if brush == "START":
-                        if start: start.reset()
-                        start = node
-                        start.make_start()
+                        for row in grid_editor:
+                            for n in row: 
+                                if n.color == GREEN: n.reset()
+                        node.make_start()
+                        start_pos = (r, c)
                     elif brush == "END":
-                        if end: end.reset()
-                        end = node
-                        end.make_end()
+                        for row in grid_editor:
+                            for n in row: 
+                                if n.color == RED: n.reset()
+                        node.make_end()
+                        end_pos = (r, c)
                     elif brush == "WALL": node.make_barrier()
                     elif brush == "WATER": node.make_water()
                     elif brush == "MOUNTAIN": node.make_mountain()
@@ -212,26 +282,30 @@ def main(win, width):
                 if event.key == pygame.K_4: brush = "WATER"
                 if event.key == pygame.K_5: brush = "MOUNTAIN"
                 if event.key == pygame.K_c:
-                    grid_backup = [[(n.color, n.weight) for n in row] for row in grid]
-                    start, end, last_results = None, None, None
-                    grid = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
+                    grid_backup = [[(n.color, n.weight) for n in r] for r in grid_editor]
+                    grid_editor = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
+                    results_d, results_a, sim_state = None, None, "EDITING"
                 if event.key == pygame.K_z and grid_backup:
-                    grid = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
                     for r in range(ROWS):
                         for c in range(ROWS):
-                            grid[r][c].color, grid[r][c].weight = grid_backup[r][c]
-                            if grid[r][c].color == GREEN: start = grid[r][c]
-                            if grid[r][c].color == RED: end = grid[r][c]
-                    grid_backup = None
-                if start and end:
-                    if event.key == pygame.K_SPACE:
-                        for row in grid:
-                            for node in row: node.update_neighbors(grid)
-                        last_results = run_algorithm("A_STAR", lambda: draw_everything(win, grid, ROWS, GRID_WIDTH, brush, last_results), grid, start, end)
-                    if event.key == pygame.K_d:
-                        for row in grid:
-                            for node in row: node.update_neighbors(grid)
-                        last_results = run_algorithm("DIJKSTRA", lambda: draw_everything(win, grid, ROWS, GRID_WIDTH, brush, last_results), grid, start, end)
+                            grid_editor[r][c].color, grid_editor[r][c].weight = grid_backup[r][c]
+                            if grid_editor[r][c].color == GREEN: start_pos = (r, c)
+                            if grid_editor[r][c].color == RED: end_pos = (r, c)
+                if event.key == pygame.K_r: 
+                    results_d, results_a, sim_state = None, None, "EDITING"
+                if event.key == pygame.K_s and start_pos and end_pos:
+                    grid_d = [[Node(i, j, gap, ROWS) for j in range(ROWS)] for i in range(ROWS)]
+                    grid_a = [[Node(i, j, gap, ROWS, GRID_SIZE) for j in range(ROWS)] for i in range(ROWS)]
+                    for r in range(ROWS):
+                        for c in range(ROWS):
+                            for target in [grid_d[r][c], grid_a[r][c]]:
+                                target.color, target.weight = grid_editor[r][c].color, grid_editor[r][c].weight
+                    for g in [grid_d, grid_a]:
+                        for r in g:
+                            for n in r: n.update_neighbors(g)
+                    sim_state = "RUNNING"
+
     pygame.quit()
 
-main(WIN, WIDTH)
+if __name__ == "__main__":
+    main(WIN)
